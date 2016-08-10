@@ -12,7 +12,7 @@
 
     var Config = (function () {
         function Config() {
-            this.baseUrl = '/';
+            this.baseUrl = 'http://api.kichink.local/';
             this.loginUrl = '/auth/login';
             this.signupUrl = '/auth/signup';
             this.unlinkUrl = '/auth/unlink/';
@@ -455,8 +455,8 @@
                         var base64Url = token.split('.')[1];
                         var base64 = base64Url.replace('-', '+').replace('_', '/');
                         var exp = JSON.parse(this.$window.atob(base64)).exp;
-                        if (exp) {
-                            return (Math.round(new Date().getTime() / 1000) >= exp) ? false : true;
+                        if (typeof exp === 'number') {
+                            return Math.round(new Date().getTime() / 1000) < exp;
                         }
                     }
                     catch (e) {
@@ -940,6 +940,61 @@
         return HttpProviderConfig;
     }());
 
+    var SessionControl = (function () {
+        function SessionControl() {
+        }
+        SessionControl.prototype.get = function (key) {
+            return sessionStorage.getItem(key);
+        };
+        SessionControl.prototype.set = function (key, value) {
+            return sessionStorage.setItem(key, value);
+        };
+        SessionControl.prototype.unset = function (key) {
+            return sessionStorage.removeItem(key);
+        };
+        SessionControl.$inject = ['$http', 'SatellizerConfig', 'SatellizerShared'];
+        return SessionControl;
+    }());
+
+    var Auth = (function () {
+        function Auth(Local, Shared, SessionControl, $location) {
+            this.Local = Local;
+            this.Shared = Shared;
+            this.SessionControl = SessionControl;
+            this.$location = $location;
+        }
+        Auth.prototype.cacheSession = function (email, username, avatar) {
+            this.SessionControl.set('userIsLogin', 'true');
+            this.SessionControl.set('email', email);
+            this.SessionControl.set('username', username);
+            return this.SessionControl.set('avatar', avatar);
+        };
+        Auth.prototype.clearCacheSession = function () {
+            this.SessionControl.unset('userIsLogin');
+            this.SessionControl.unset('email');
+            this.SessionControl.unset('username');
+            return this.SessionControl.unset('avatar');
+        };
+        Auth.prototype.login = function (loginForm) {
+            return this.Local.login(loginForm.then(function (response) {
+                this.cacheSession(response.data.user.email, response.data.user.name, loginForm.avatar);
+                this.$location.path('/a/dashboard');
+            }, function (error) {
+                this.clearCacheSession();
+                return this.error(error.data.error, 'Error');
+            }));
+        };
+        ;
+        Auth.prototype.logout = function () {
+            this.Shared.logout();
+            this.clearCacheSession();
+            return this.$location.path('/');
+        };
+        ;
+        Auth.$inject = ['Local', 'Shared', 'sessionControl', '$location'];
+        return Auth;
+    }());
+
     angular.module('satellizer', [])
         .provider('$auth', ['SatellizerConfig', function (SatellizerConfig) { return new AuthProvider(SatellizerConfig); }])
         .constant('SatellizerConfig', Config.getConstant)
@@ -951,6 +1006,8 @@
         .service('SatellizerOAuth1', OAuth1)
         .service('SatellizerStorage', Storage)
         .service('SatellizerInterceptor', Interceptor)
+        .service('SessionControl', SessionControl)
+        .service('Auth', Auth)
         .config(['$httpProvider', function ($httpProvider) { return new HttpProviderConfig($httpProvider); }]);
     var ng1 = 'satellizer';
 
